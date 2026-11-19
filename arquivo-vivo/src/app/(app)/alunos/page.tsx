@@ -1,65 +1,66 @@
-"use client";
+import { sql } from "@/lib/db";
+import { permissaoAtual } from "@/lib/autorizacao";
+import { situacoesMatricula } from "@/lib/rotulos";
+import AlunosCliente from "./AlunosCliente";
 
-import Link from "next/link";
-import { useState } from "react";
-import { Campo, Cartao, Chip, Titulo, classeBotao, tomSituacao } from "@/components/ui";
-import { alunos, cursos } from "@/lib/mock";
+export const dynamic = "force-dynamic";
 
-export default function AlunosPage() {
-	const [busca, setBusca] = useState("");
-	const [curso, setCurso] = useState("");
-	const [situacao, setSituacao] = useState("");
+export default async function AlunosPage() {
+	const cadastro = await permissaoAtual("Cadastro de alunos");
 
-	const lista = alunos.filter(
-		(a) =>
-			(a.nome + a.matricula).toLowerCase().includes(busca.toLowerCase()) &&
-			(!curso || a.curso === curso) &&
-			(!situacao || a.situacao === situacao),
-	);
+	const alunos = await sql`
+		select
+			aluno.id as aluno_id,
+			matricula.id as matricula_id,
+			aluno.nome_completo as nome,
+			matricula.numero as matricula,
+			curso.nome as curso,
+			matricula.situacao,
+			(
+				select turma.codigo
+				from matricula_turma
+				join turma on (
+					turma.id = matricula_turma.turma_id
+				)
+				join periodo_letivo on (
+					periodo_letivo.id = matricula_turma.periodo_letivo_id
+				)
+				where 1=1
+				and matricula_turma.matricula_id = matricula.id
+				order by periodo_letivo.ano desc, periodo_letivo.semestre desc
+				limit 1
+			) as turma
+		from aluno
+		left join matricula on (
+			matricula.aluno_id = aluno.id
+		)
+		left join curso on (
+			curso.id = matricula.curso_id
+		)
+		where 1=1
+		order by aluno.nome_completo, matricula.numero
+	`;
+
+	const cursos = await sql`
+		select nome
+		from curso
+		where 1=1
+		order by nome
+	`;
 
 	return (
-		<>
-			<Titulo titulo="Alunos" sub={`${lista.length} aluno(s) encontrado(s)`}>
-				<Link href="/alunos/rascunhos" className={classeBotao("claro")}>Rascunhos</Link>
-				<Link href="/alunos/novo" className={classeBotao("primario")}>+ Novo aluno</Link>
-			</Titulo>
-
-			<Cartao className="mb-4">
-				<div className="grid gap-3 md:grid-cols-3">
-					<Campo label="Buscar" value={busca} onChange={setBusca} placeholder="Nome ou matrícula" />
-					<Campo label="Curso" value={curso} onChange={setCurso} opcoes={cursos.map((c) => c.nome)} />
-					<Campo label="Situação" value={situacao} onChange={setSituacao} opcoes={["Ativa", "Trancada", "Concluída"]} />
-				</div>
-			</Cartao>
-
-			<Cartao>
-				<table className="w-full text-sm">
-					<thead>
-						<tr className="text-left text-xs uppercase text-suave">
-							<th className="pb-2">Aluno</th><th className="pb-2">Matrícula</th><th className="pb-2">Curso</th>
-							<th className="pb-2">Turma</th><th className="pb-2">Situação</th><th className="pb-2 text-right">Ações</th>
-						</tr>
-					</thead>
-					<tbody>
-						{lista.map((a) => (
-							<tr key={a.id} className="border-t border-linha">
-								<td className="py-2 font-medium">{a.nome}</td>
-								<td className="py-2 font-mono text-xs">{a.matricula}</td>
-								<td className="py-2">{a.curso}</td>
-								<td className="py-2">{a.turma}</td>
-								<td className="py-2"><Chip tom={tomSituacao(a.situacao)}>{a.situacao}</Chip></td>
-								<td className="space-x-3 py-2 text-right">
-									<Link href={`/alunos/${a.id}`} className="text-vermelho hover:underline">Visualizar</Link>
-									<Link href={`/alunos/${a.id}/editar`} className="text-vermelho hover:underline">Editar</Link>
-								</td>
-							</tr>
-						))}
-						{lista.length === 0 && (
-							<tr><td colSpan={6} className="py-8 text-center text-suave">Nenhum aluno encontrado.</td></tr>
-						)}
-					</tbody>
-				</table>
-			</Cartao>
-		</>
+		<AlunosCliente
+			podeCadastrar={cadastro.nivel === "editar"}
+			cursos={cursos.map((c) => c.nome)}
+			alunos={alunos.map((a) => ({
+				chave: `${a.aluno_id}-${a.matricula_id ?? "0"}`,
+				alunoId: String(a.aluno_id),
+				nome: a.nome,
+				matricula: a.matricula ?? "—",
+				curso: a.curso ?? "—",
+				turma: a.turma ?? "—",
+				situacao: a.situacao ? situacoesMatricula[a.situacao] : "Sem matrícula",
+			}))}
+		/>
 	);
 }

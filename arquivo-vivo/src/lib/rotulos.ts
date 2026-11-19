@@ -29,3 +29,19 @@ export function rotulosDe(mapa: Record<string, string>) {
 export function codigoDe(mapa: Record<string, string>, rotulo: string) {
 	return Object.keys(mapa).find((chave) => mapa[chave] === rotulo) ?? "";
 }
+
+export const situacoesMatricula: Record<string, string> = {
+	ativa: "Ativa",
+	trancada: "Trancada",
+	inativa: "Inativa",
+};
+
+export const parentescos: Record<string, string> = {
+	mae: "Mãe",
+	pai: "Pai",
+	avo: "Avô/Avó",
+	tio: "Tio/Tia",
+	irmao: "Irmão/Irmã",
+	tutor_legal: "Tutor legal",
+	outro: "Outro",
+};
