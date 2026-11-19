@@ -71,7 +71,7 @@ export function Campo({ label, value, onChange, type = "text", opcoes, placehold
 			{opcoes ? (
 				<select className={base} value={value} disabled={readOnly} onChange={(e) => onChange?.(e.target.value)}>
 					<option value="">Selecione…</option>
-					{opcoes.map((o) => (
+					{Array.from(new Set(opcoes)).map((o) => (
 						<option key={o} value={o}>{o}</option>
 					))}
 				</select>

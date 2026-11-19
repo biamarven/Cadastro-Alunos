@@ -2,24 +2,37 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { sair } from "@/app/login/actions";
+import { podeAcessar } from "@/lib/permissoes";
+import type { Permissoes } from "@/lib/permissoes";
 
 const itens = [
-	{ href: "/inicio", nome: "Início" },
-	{ href: "/alunos", nome: "Alunos" },
-	{ href: "/cursos", nome: "Cursos e turmas" },
-	{ href: "/notas", nome: "Notas" },
-	{ href: "/administracao", nome: "Administração" },
+	{ href: "/inicio", nome: "Início", modulo: null },
+	{ href: "/alunos", nome: "Alunos", modulo: "Alunos" },
+	{ href: "/cursos", nome: "Cursos e turmas", modulo: "Cursos e turmas" },
+	{ href: "/notas", nome: "Notas", modulo: "Notas" },
+	{ href: "/administracao", nome: "Administração", modulo: "Administração" },
 ];
 
-export default function Sidebar() {
+export default function Sidebar({
+	nome,
+	perfil,
+	permissoes,
+}: {
+	nome: string;
+	perfil: string;
+	permissoes: Permissoes;
+}) {
 	const caminho = usePathname();
+	const visiveis = itens.filter((i) => i.modulo === null || podeAcessar(permissoes, i.modulo));
+
 	return (
 		<aside className="no-print sticky top-0 flex h-screen w-60 shrink-0 flex-col bg-lateral text-stone-300">
 			<div className="px-6 py-6 font-serif text-xl font-bold text-white">
 				Arquivo <span className="text-vermelho">Vivo</span>
 			</div>
 			<nav className="flex-1 space-y-1 px-3">
-				{itens.map((i) => {
+				{visiveis.map((i) => {
 					const ativo = caminho.startsWith(i.href);
 					return (
 						<Link
@@ -35,11 +48,13 @@ export default function Sidebar() {
 				})}
 			</nav>
 			<div className="border-t border-white/10 p-4 text-sm">
-				<p className="font-semibold text-white">Gabriel Souza</p>
-				<p className="text-xs text-stone-400">Administrador</p>
-				<Link href="/login" className="mt-3 inline-block text-xs text-stone-400 hover:text-white">
-					Sair
-				</Link>
+				<p className="font-semibold text-white">{nome}</p>
+				<p className="text-xs text-stone-400">{perfil}</p>
+				<form action={sair}>
+					<button type="submit" className="mt-3 text-xs text-stone-400 hover:text-white">
+						Sair
+					</button>
+				</form>
 			</div>
 		</aside>
 	);

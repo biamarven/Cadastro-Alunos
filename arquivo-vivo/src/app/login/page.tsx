@@ -1,23 +1,29 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import type { FormEvent } from "react";
-import { useRouter } from "next/navigation";
 import { Campo, classeBotao } from "@/components/ui";
+import { entrar } from "./actions";
 
 export default function LoginPage() {
-	const router = useRouter();
 	const [email, setEmail] = useState("");
 	const [senha, setSenha] = useState("");
 	const [erro, setErro] = useState("");
+	const [enviando, iniciarEnvio] = useTransition();
 
-	function entrar(e: FormEvent) {
+	function enviar(e: FormEvent) {
 		e.preventDefault();
 		if (!email.includes("@") || senha.length < 6) {
 			setErro("Informe um e-mail válido e uma senha com ao menos 6 caracteres.");
 			return;
 		}
-		router.push("/inicio"); // trocar pela autenticação real depois
+		setErro("");
+		iniciarEnvio(async () => {
+			const resultado = await entrar(email, senha);
+			if (resultado?.erro) {
+				setErro(resultado.erro);
+			}
+		});
 	}
 
 	return (
@@ -38,13 +44,15 @@ export default function LoginPage() {
 			</section>
 
 			<section className="flex items-center justify-center p-8">
-				<form onSubmit={entrar} className="w-full max-w-sm space-y-4">
+				<form onSubmit={enviar} className="w-full max-w-sm space-y-4">
 					<h1 className="font-serif text-3xl font-bold">Entrar</h1>
 					<p className="text-sm text-suave">Use o e-mail institucional cadastrado pela secretaria.</p>
 					<Campo label="E-mail" type="email" value={email} onChange={setEmail} placeholder="nome@arquivovivo.edu.br" />
 					<Campo label="Senha" type="password" value={senha} onChange={setSenha} />
 					{erro && <p className="text-sm text-vermelho">{erro}</p>}
-					<button type="submit" className={classeBotao("primario") + " w-full"}>Entrar</button>
+					<button type="submit" disabled={enviando} className={classeBotao("primario") + " w-full"}>
+						{enviando ? "Entrando..." : "Entrar"}
+					</button>
 					<p className="text-center text-xs text-suave">Esqueceu a senha? Procure a secretaria.</p>
 				</form>
 			</section>
