@@ -8,6 +8,11 @@ export async function proxy(request: NextRequest) {
 	const sessao = token ? await verificarToken(token) : null;
 	const caminho = request.nextUrl.pathname;
 	const ehLogin = caminho === "/login";
+	const ehConvite = caminho.startsWith("/convite/");
+
+	if (ehConvite) {
+		return NextResponse.next();
+	}
 
 	if (!sessao && !ehLogin) {
 		return NextResponse.redirect(new URL("/login", request.url));
