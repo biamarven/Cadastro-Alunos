@@ -1,15 +1,17 @@
 import { sql } from "@/lib/db";
 import { lerSessao } from "@/lib/sessao";
 
-export async function exigirEdicao(modulo: string) {
+export async function permissaoAtual(modulo: string) {
 	const sessao = await lerSessao();
 
 	if (!sessao) {
-		throw new Error("Sem sessão");
+		return { sessao: null, nivel: "sem_acesso", escopo: "todos" };
 	}
 
 	const linhas = await sql`
-		select perfil_permissao.nivel
+		select
+			perfil_permissao.nivel,
+			perfil_permissao.escopo
 		from usuario
 		join perfil_permissao on (
 			perfil_permissao.perfil_id = usuario.perfil_id
@@ -23,9 +25,23 @@ export async function exigirEdicao(modulo: string) {
 		and modulo.nome = ${modulo}
 	`;
 
-	if (linhas[0]?.nivel !== "editar") {
+	return {
+		sessao,
+		nivel: String(linhas[0]?.nivel ?? "sem_acesso"),
+		escopo: String(linhas[0]?.escopo ?? "todos"),
+	};
+}
+
+export async function exigirEdicao(modulo: string, exigirTodos = false) {
+	const permissao = await permissaoAtual(modulo);
+
+	if (!permissao.sessao || permissao.nivel !== "editar") {
 		throw new Error("Sem permissão");
 	}
 
-	return sessao;
+	if (exigirTodos && permissao.escopo !== "todos") {
+		throw new Error("Sem permissão");
+	}
+
+	return permissao.sessao;
 }

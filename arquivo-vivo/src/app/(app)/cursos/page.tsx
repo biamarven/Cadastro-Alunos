@@ -1,87 +1,123 @@
-"use client";
+import { sql } from "@/lib/db";
+import { permissaoAtual } from "@/lib/autorizacao";
+import CursosCliente from "./CursosCliente";
 
-import { useState } from "react";
-import type { FormEvent } from "react";
-import Modal from "@/components/Modal";
-import { Campo, Cartao, Titulo, classeBotao } from "@/components/ui";
-import { cursos as inicial, turmas } from "@/lib/mock";
+export const dynamic = "force-dynamic";
 
-const vazio = { nome: "", codigo: "", carga: "", duracao: "", turno: "" };
+export default async function CursosPage() {
+	const permissao = await permissaoAtual("Cursos e turmas");
+	const podeEditar = permissao.nivel === "editar" && permissao.escopo === "todos";
 
-export default function CursosPage() {
-	const [lista, setLista] = useState(inicial);
-	const [aberto, setAberto] = useState(false);
-	const [f, setF] = useState(vazio);
-	const [periodo, setPeriodo] = useState("2026.2");
+	const cursos = await sql`
+		select
+			curso.id,
+			curso.codigo,
+			curso.nome,
+			curso.nivel,
+			curso.modalidade,
+			curso.carga_horaria_total,
+			curso.duracao_semestres,
+			curso.vagas_por_turma,
+			curso.situacao,
+			coalesce((
+				select string_agg(curso_turno.turno, ',' order by curso_turno.turno)
+				from curso_turno
+				where 1=1
+				and curso_turno.curso_id = curso.id
+			), '') as turnos,
+			(
+				select count(*)
+				from matricula
+				where 1=1
+				and matricula.curso_id = curso.id
+				and matricula.situacao = 'ativa'
+			) as alunos,
+			(
+				select count(*)
+				from turma
+				where 1=1
+				and turma.curso_id = curso.id
+			) as turmas
+		from curso
+		where 1=1
+		order by curso.nome
+	`;
 
-	function salvar(e: FormEvent) {
-		e.preventDefault();
-		setLista([
-			...lista,
-			{ id: String(lista.length + 1), nome: f.nome, codigo: f.codigo.toUpperCase(), carga: Number(f.carga),
-				duracao: f.duracao, turnos: f.turno ? [f.turno] : [], alunos: 0, turmas: 0 },
-		]);
-		setF(vazio);
-		setAberto(false);
-	}
+	const periodos = await sql`
+		select id, codigo, atual
+		from periodo_letivo
+		where 1=1
+		order by ano desc, semestre desc
+	`;
+
+	const turmas = await sql`
+		select
+			turma.id,
+			turma.codigo,
+			curso.nome as curso,
+			periodo_letivo.codigo as periodo,
+			turma.turno,
+			turma.vagas,
+			turma.situacao,
+			(
+				select count(*)
+				from matricula_turma
+				where 1=1
+				and matricula_turma.turma_id = turma.id
+			) as matriculados,
+			coalesce((
+				select string_agg(distinct usuario.nome, ', ')
+				from oferta_disciplina
+				join usuario on (
+					usuario.id = oferta_disciplina.professor_id
+				)
+				where 1=1
+				and oferta_disciplina.turma_id = turma.id
+			), '') as professores
+		from turma
+		join curso on (
+			curso.id = turma.curso_id
+		)
+		join periodo_letivo on (
+			periodo_letivo.id = turma.periodo_letivo_id
+		)
+		where 1=1
+		order by periodo_letivo.ano desc, periodo_letivo.semestre desc, turma.codigo
+	`;
 
 	return (
-		<>
-			<Titulo titulo="Cursos e turmas" sub="Cursos oferecidos e turmas do período">
-				<button className={classeBotao("primario")} onClick={() => setAberto(true)}>+ Novo curso</button>
-			</Titulo>
-
-			<div className="mb-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-				{lista.map((c) => (
-					<Cartao key={c.id}>
-						<p className="font-mono text-xs text-vermelho">{c.codigo}</p>
-						<p className="font-serif text-lg font-bold">{c.nome}</p>
-						<p className="mt-1 text-sm text-suave">{c.carga} h · {c.duracao} · {c.turnos.join(", ") || "sem turno"}</p>
-						<p className="mt-3 text-sm">{c.alunos} alunos · {c.turmas} turmas</p>
-					</Cartao>
-				))}
-			</div>
-
-			<Cartao titulo="Turmas">
-				<div className="mb-4 max-w-xs">
-					<Campo label="Período letivo" value={periodo} onChange={setPeriodo} opcoes={["2026.1", "2026.2"]} />
-				</div>
-				<table className="w-full text-sm">
-					<thead>
-						<tr className="text-left text-xs uppercase text-suave">
-							<th className="pb-2">Turma</th><th className="pb-2">Curso</th><th className="pb-2">Turno</th>
-							<th className="pb-2">Vagas</th><th className="pb-2">Professor</th>
-						</tr>
-					</thead>
-					<tbody>
-						{turmas.filter((t) => !periodo || t.periodo === periodo).map((t) => (
-							<tr key={t.codigo + t.periodo} className="border-t border-linha">
-								<td className="py-2 font-mono text-xs">{t.codigo}</td>
-								<td className="py-2">{t.curso}</td>
-								<td className="py-2">{t.turno}</td>
-								<td className="py-2">{t.matriculados}/{t.vagas}</td>
-								<td className="py-2">{t.professor}</td>
-							</tr>
-						))}
-					</tbody>
-				</table>
-			</Cartao>
-
-			<Modal aberto={aberto} titulo="Novo curso" onFechar={() => setAberto(false)}>
-				<form onSubmit={salvar} className="space-y-4">
-					<Campo label="Nome do curso" value={f.nome} onChange={(v) => setF({ ...f, nome: v })} />
-					<div className="grid grid-cols-2 gap-4">
-						<Campo label="Código" value={f.codigo} onChange={(v) => setF({ ...f, codigo: v })} placeholder="INF" />
-						<Campo label="Carga horária (h)" type="number" value={f.carga} onChange={(v) => setF({ ...f, carga: v })} />
-						<Campo label="Duração" value={f.duracao} onChange={(v) => setF({ ...f, duracao: v })} placeholder="4 semestres" />
-						<Campo label="Turno" value={f.turno} onChange={(v) => setF({ ...f, turno: v })} opcoes={["Manhã", "Tarde", "Noite"]} />
-					</div>
-					<div className="flex justify-end gap-2">
-						<button type="button" className={classeBotao("claro")} onClick={() => setAberto(false)}>Cancelar</button>
-						<button type="submit" className={classeBotao("primario")} disabled={!f.nome || !f.codigo || !f.carga}>Salvar curso</button>
-					</div>
-				</form>
-			</Modal>
-		</>
+		<CursosCliente
+			podeEditar={podeEditar}
+			cursos={cursos.map((c) => ({
+				id: String(c.id),
+				codigo: c.codigo,
+				nome: c.nome,
+				nivel: c.nivel,
+				modalidade: c.modalidade,
+				carga: Number(c.carga_horaria_total),
+				duracao: Number(c.duracao_semestres),
+				vagasPorTurma: c.vagas_por_turma === null ? null : Number(c.vagas_por_turma),
+				situacao: c.situacao,
+				turnos: c.turnos ? String(c.turnos).split(",") : [],
+				alunos: Number(c.alunos),
+				turmas: Number(c.turmas),
+			}))}
+			periodos={periodos.map((p) => ({
+				id: String(p.id),
+				codigo: p.codigo,
+				atual: Boolean(p.atual),
+			}))}
+			turmas={turmas.map((t) => ({
+				id: String(t.id),
+				codigo: t.codigo,
+				curso: t.curso,
+				periodo: t.periodo,
+				turno: t.turno,
+				vagas: Number(t.vagas),
+				matriculados: Number(t.matriculados),
+				professores: t.professores,
+				situacao: t.situacao,
+			}))}
+		/>
 	);
 }
