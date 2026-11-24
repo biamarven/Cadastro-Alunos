@@ -45,3 +45,10 @@ export const parentescos: Record<string, string> = {
 	tutor_legal: "Tutor legal",
 	outro: "Outro",
 };
+
+export const formasIngresso: Record<string, string> = {
+	vestibular: "Vestibular",
+	enem: "ENEM",
+	transferencia: "Transferência",
+	outro: "Outro",
+};
