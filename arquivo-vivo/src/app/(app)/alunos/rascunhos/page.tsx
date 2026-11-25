@@ -1,24 +1,35 @@
-"use client";
-
 import Link from "next/link";
-import { useEffect, useState } from "react";
 import { Cartao, Titulo, classeBotao } from "@/components/ui";
+import { sql } from "@/lib/db";
+import { lerSessao } from "@/lib/sessao";
+import { descartarRascunho } from "./actions";
 
-type Rascunho = { id: string; form: { nome: string; curso: string }; passo: number; salvoEm: string };
-const CHAVE = "av_rascunhos";
+export const dynamic = "force-dynamic";
 
-export default function RascunhosPage() {
-	const [lista, setLista] = useState<Rascunho[]>([]);
+export default async function RascunhosPage() {
+	const sessao = await lerSessao();
 
-	useEffect(() => {
-		setLista(JSON.parse(localStorage.getItem(CHAVE) ?? "[]"));
-	}, []);
+	await sql`
+		delete from cadastro_rascunho
+		where 1=1
+		and atualizado_em < now() - make_interval(days => coalesce((select descarte_rascunho_dias from configuracao limit 1), 30)::int)
+	`;
 
-	function descartar(id: string) {
-		const nova = lista.filter((r) => r.id !== id);
-		localStorage.setItem(CHAVE, JSON.stringify(nova));
-		setLista(nova);
-	}
+	const lista = sessao
+		? await sql`
+			select
+				id::text as id,
+				nome_aluno,
+				etapa_atual,
+				total_etapas,
+				dados ->> 'curso' as curso,
+				to_char(atualizado_em at time zone 'America/Sao_Paulo', 'DD/MM/YYYY HH24:MI') as salvo_em
+			from cadastro_rascunho
+			where 1=1
+			and criado_por = ${String(sessao.usuarioId)}::bigint
+			order by atualizado_em desc
+		`
+		: [];
 
 	return (
 		<>
@@ -35,14 +46,18 @@ export default function RascunhosPage() {
 					</thead>
 					<tbody>
 						{lista.map((r) => (
-							<tr key={r.id} className="border-t border-linha">
-								<td className="py-2 font-medium">{r.form.nome || "(sem nome)"}</td>
-								<td className="py-2">{r.form.curso || "—"}</td>
-								<td className="py-2">Etapa {r.passo + 1}</td>
-								<td className="py-2">{new Date(r.salvoEm).toLocaleString("pt-BR")}</td>
-								<td className="space-x-3 py-2 text-right">
-									<Link href={`/alunos/novo?rascunho=${r.id}`} className="text-vermelho hover:underline">Retomar</Link>
-									<button onClick={() => descartar(r.id)} className="text-suave hover:text-vermelho">Descartar</button>
+							<tr key={String(r.id)} className="border-t border-linha">
+								<td className="py-2 font-medium">{r.nome_aluno || "(sem nome)"}</td>
+								<td className="py-2">{r.curso || "—"}</td>
+								<td className="py-2">Etapa {Number(r.etapa_atual)} de {Number(r.total_etapas)}</td>
+								<td className="py-2">{String(r.salvo_em)}</td>
+								<td className="py-2 text-right">
+									<span className="inline-flex items-center gap-3">
+										<Link href={`/alunos/novo?rascunho=${r.id}`} className="text-vermelho hover:underline">Retomar</Link>
+										<form action={descartarRascunho.bind(null, String(r.id))}>
+											<button type="submit" className="text-suave hover:text-vermelho">Descartar</button>
+										</form>
+									</span>
 								</td>
 							</tr>
 						))}

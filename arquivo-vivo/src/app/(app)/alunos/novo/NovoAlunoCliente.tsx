@@ -7,6 +7,7 @@ import { Campo, Cartao, Titulo, classeBotao } from "@/components/ui";
 import { idade } from "@/lib/notas";
 import { codigoDe, formasIngresso, parentescos, rotulosDe, turnos } from "@/lib/rotulos";
 import { cadastrarAluno } from "./actions";
+import { carregarRascunho, descartarRascunho, salvarRascunho as gravarRascunho } from "../rascunhos/actions";
 
 export type TurmaOpcao = {
 	id: string;
@@ -39,9 +40,6 @@ const nomesPassos: Record<string, string> = {
 	docs: "Documentos", resp: "Responsável legal", revisao: "Revisão",
 };
 
-type Rascunho = { id: string; form: Form; passo: number; salvoEm: string };
-const CHAVE = "av_rascunhos";
-
 export default function NovoAlunoCliente({
 	cursos,
 	periodos,
@@ -58,7 +56,7 @@ export default function NovoAlunoCliente({
 	const [concluido, setConcluido] = useState<{ matricula: string; alunoId: string } | null>(null);
 	const [erro, setErro] = useState("");
 	const [enviando, iniciar] = useTransition();
-	const idRascunho = useRef<string>(String(Date.now()));
+	const idRascunho = useRef<string | null>(null);
 
 	const menor = (idade(form.nascimento) ?? 99) < 18;
 	const chaves = ["pessoais", "contato", "curso", "docs", ...(menor ? ["resp"] : []), "revisao"];
@@ -73,24 +71,27 @@ export default function NovoAlunoCliente({
 	useEffect(() => {
 		const id = new URLSearchParams(window.location.search).get("rascunho");
 		if (!id) return;
-		const lista: Rascunho[] = JSON.parse(localStorage.getItem(CHAVE) ?? "[]");
-		const r = lista.find((x) => x.id === id);
-		if (r) {
-			idRascunho.current = r.id;
-									setForm({ ...vazio, ...r.form, periodo: r.form.periodo || padrao });
-			setPasso(r.passo);
-		}
+		carregarRascunho(id).then((r) => {
+			if (r.erro || !r.form) {
+				setErro(r.erro ?? "Rascunho não encontrado.");
+				return;
+			}
+			idRascunho.current = r.id ?? id;
+			setForm({ ...vazio, ...r.form, periodo: r.form.periodo || padrao });
+			setPasso(r.passo ?? 0);
+		});
 	}, [padrao]);
 
-	function lerRascunhos(): Rascunho[] {
-		return JSON.parse(localStorage.getItem(CHAVE) ?? "[]");
-	}
-
-	function salvarRascunho() {
-		const lista = lerRascunhos().filter((r) => r.id !== idRascunho.current);
-		lista.push({ id: idRascunho.current, form, passo, salvoEm: new Date().toISOString() });
-		localStorage.setItem(CHAVE, JSON.stringify(lista));
-		router.push("/alunos/rascunhos");
+	function guardarRascunho() {
+		setErro("");
+		iniciar(async () => {
+			const r = await gravarRascunho(idRascunho.current, form, passo, chaves.length - 1);
+			if (r.erro) {
+				setErro(r.erro);
+				return;
+			}
+			router.push("/alunos/rascunhos");
+		});
 	}
 
 	const turmasDisponiveis = turmas.filter(
@@ -135,7 +136,7 @@ export default function NovoAlunoCliente({
 				setErro(resultado.erro ?? "Não foi possível concluir o cadastro.");
 				return;
 			}
-			localStorage.setItem(CHAVE, JSON.stringify(lerRascunhos().filter((r) => r.id !== idRascunho.current)));
+			if (idRascunho.current) await descartarRascunho(idRascunho.current);
 			setConcluido({ matricula: resultado.matricula, alunoId: resultado.alunoId });
 		});
 	}
@@ -275,7 +276,7 @@ export default function NovoAlunoCliente({
 			{erro && <p className="mt-4 text-sm text-vermelho">{erro}</p>}
 
 			<div className="mt-6 flex flex-wrap justify-between gap-2">
-				<button className={classeBotao("claro")} onClick={salvarRascunho}>Salvar rascunho</button>
+				<button className={classeBotao("claro")} disabled={enviando} onClick={guardarRascunho}>Salvar rascunho</button>
 				<div className="flex gap-2">
 					<button className={classeBotao("claro")} disabled={passo === 0} onClick={() => setPasso(passo - 1)}>Voltar</button>
 					{atual !== "revisao" ? (
