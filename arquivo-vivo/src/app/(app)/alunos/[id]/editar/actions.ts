@@ -1,5 +1,6 @@
 "use server";
 
+import { idadeEm } from "@/lib/formatos";
 import { revalidatePath } from "next/cache";
 import { sql } from "@/lib/db";
 import { exigirEdicao } from "@/lib/autorizacao";
@@ -181,5 +182,179 @@ export async function alterarSituacaoMatricula(
 	revalidatePath("/alunos");
 	revalidatePath(`/alunos/${alunoId}`);
 	revalidatePath("/cursos");
+	return {};
+}
+
+
+const PARENTESCOS_VALIDOS = ["mae", "pai", "avo", "tio", "irmao", "tutor_legal", "outro"];
+
+type DadosResponsavel = {
+	nome: string;
+	nascimento: string;
+	telefone: string;
+	email: string;
+	parentesco: string;
+	financeiro: boolean;
+};
+
+export async function salvarResponsavel(
+	alunoId: string,
+	responsavelId: string,
+	dados: DadosResponsavel,
+): Promise<{ erro?: string }> {
+	let sessao;
+	try {
+		sessao = await exigirEdicao("Cadastro de alunos");
+	} catch {
+		return { erro: "Você não tem permissão para editar responsáveis." };
+	}
+
+	if (!/^\d+$/.test(alunoId) || !/^\d+$/.test(responsavelId)) return { erro: "Dados inválidos." };
+
+	const nome = dados.nome.trim();
+	const email = dados.email.trim().toLowerCase();
+	const telefone = dados.telefone.trim();
+	if (nome.length < 3) return { erro: "Informe o nome completo do responsável." };
+	if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { erro: "E-mail do responsável inválido." };
+	if (!telefone) return { erro: "Informe o telefone do responsável." };
+	if (!/^\d{4}-\d{2}-\d{2}$/.test(dados.nascimento) || Number.isNaN(Date.parse(dados.nascimento))) {
+		return { erro: "Data de nascimento do responsável inválida." };
+	}
+	if (idadeEm(dados.nascimento) < 18) return { erro: "O responsável precisa ter 18 anos ou mais." };
+	if (!PARENTESCOS_VALIDOS.includes(dados.parentesco)) return { erro: "Parentesco inválido." };
+
+	const atuais = await sql`
+		select
+			responsavel.nome_completo,
+			to_char(responsavel.data_nascimento, 'YYYY-MM-DD') as data_nascimento,
+			responsavel.telefone,
+			responsavel.email,
+			aluno_responsavel.parentesco,
+			aluno_responsavel.responsavel_financeiro
+		from aluno_responsavel
+		join responsavel on (
+			responsavel.id = aluno_responsavel.responsavel_id
+		)
+		where 1=1
+		and aluno_responsavel.aluno_id = ${alunoId}::bigint
+		and aluno_responsavel.responsavel_id = ${responsavelId}::bigint
+	`;
+	if (atuais.length === 0) return { erro: "Responsável não encontrado neste aluno." };
+	const antigo = atuais[0];
+
+	const novosResp: Record<string, string> = {
+		nome_completo: nome,
+		data_nascimento: dados.nascimento,
+		telefone,
+		email,
+	};
+	const antesResp: Record<string, string> = {};
+	const depoisResp: Record<string, string> = {};
+	for (const [campo, valor] of Object.entries(novosResp)) {
+		const valorAntigo = antigo[campo] == null ? "" : String(antigo[campo]);
+		if (valorAntigo !== valor) {
+			antesResp[campo] = valorAntigo;
+			depoisResp[campo] = valor;
+		}
+	}
+
+	const financeiroAntigo = Boolean(antigo.responsavel_financeiro);
+	const vinculoMudou = String(antigo.parentesco) !== dados.parentesco || financeiroAntigo !== dados.financeiro;
+	const respMudou = Object.keys(depoisResp).length > 0;
+	if (!respMudou && !vinculoMudou) return {};
+
+	try {
+		await sql`
+			with atualizado as (
+				update responsavel
+				set
+					nome_completo = ${nome},
+					data_nascimento = ${dados.nascimento}::date,
+					telefone = ${telefone},
+					email = ${email},
+					atualizado_em = now()
+				where 1=1
+				and id = ${responsavelId}::bigint
+				returning id
+			)
+			update aluno_responsavel
+			set
+				parentesco = ${dados.parentesco}::text,
+				responsavel_financeiro = ${dados.financeiro}::boolean
+			where 1=1
+			and aluno_id = ${alunoId}::bigint
+			and responsavel_id = ${responsavelId}::bigint
+		`;
+	} catch {
+		return { erro: "Não foi possível salvar o responsável." };
+	}
+
+	if (respMudou) {
+		await registrarAuditoria(sessao.usuarioId, "editar", "responsavel", responsavelId, depoisResp, antesResp);
+	}
+	if (vinculoMudou) {
+		await registrarAuditoria(
+			sessao.usuarioId,
+			"editar",
+			"aluno_responsavel",
+			alunoId,
+			{ responsavel_id: responsavelId, parentesco: dados.parentesco, responsavel_financeiro: dados.financeiro },
+			{ responsavel_id: responsavelId, parentesco: String(antigo.parentesco), responsavel_financeiro: financeiroAntigo },
+		);
+	}
+
+	revalidatePath(`/alunos/${alunoId}`);
+	return {};
+}
+
+export async function removerResponsavel(alunoId: string, responsavelId: string): Promise<{ erro?: string }> {
+	let sessao;
+	try {
+		sessao = await exigirEdicao("Cadastro de alunos");
+	} catch {
+		return { erro: "Você não tem permissão para editar responsáveis." };
+	}
+
+	if (!/^\d+$/.test(alunoId) || !/^\d+$/.test(responsavelId)) return { erro: "Dados inválidos." };
+
+	const alunos = await sql`
+		select
+			to_char(aluno.data_nascimento, 'YYYY-MM-DD') as nascimento,
+			(
+				select count(*)
+				from aluno_responsavel
+				where 1=1
+				and aluno_responsavel.aluno_id = aluno.id
+			) as total
+		from aluno
+		where 1=1
+		and aluno.id = ${alunoId}::bigint
+	`;
+	if (alunos.length === 0) return { erro: "Aluno não encontrado." };
+
+	const menor = idadeEm(String(alunos[0].nascimento)) < 18;
+	if (menor && Number(alunos[0].total) <= 1) {
+		return { erro: "Aluno menor de 18 anos precisa ter ao menos um responsável." };
+	}
+
+	const removidos = await sql`
+		delete from aluno_responsavel
+		where 1=1
+		and aluno_id = ${alunoId}::bigint
+		and responsavel_id = ${responsavelId}::bigint
+		returning responsavel_id
+	`;
+	if (removidos.length === 0) return { erro: "Vínculo não encontrado." };
+
+	await registrarAuditoria(
+		sessao.usuarioId,
+		"remover_vinculo",
+		"aluno_responsavel",
+		alunoId,
+		{},
+		{ responsavel_id: responsavelId },
+	);
+
+	revalidatePath(`/alunos/${alunoId}`);
 	return {};
 }
