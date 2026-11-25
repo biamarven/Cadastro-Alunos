@@ -3,6 +3,7 @@ import { Titulo } from "@/components/ui";
 import { sql } from "@/lib/db";
 import { formatarCpf } from "@/lib/formatos";
 import FormEditar from "./FormEditar";
+import SituacaoMatricula from "./SituacaoMatricula";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +21,7 @@ export default async function EditarPage({ params }: { params: Promise<{ id: str
 	const a = alunos[0];
 
 	const matriculas = await sql`
-		select matricula.numero, curso.nome as curso
+		select matricula.id::text as id, matricula.numero, matricula.situacao, curso.nome as curso
 		from matricula join curso on (
 			curso.id = matricula.curso_id
 		)
@@ -44,13 +45,21 @@ export default async function EditarPage({ params }: { params: Promise<{ id: str
 		uf: String(a.uf ?? ""),
 	};
 
+	const listaMatriculas = matriculas.map((m) => ({
+		id: String(m.id),
+		numero: String(m.numero),
+		curso: String(m.curso),
+		situacao: String(m.situacao),
+	}));
+
 	return (
 		<>
 			<Titulo titulo={`Editar: ${aluno.nome}`} sub="Matrícula, curso e CPF não são editados aqui." />
 			<FormEditar
 				aluno={aluno}
-				matriculas={matriculas.map((m) => ({ numero: String(m.numero), curso: String(m.curso) }))}
+				matriculas={listaMatriculas.map((m) => ({ numero: m.numero, curso: m.curso }))}
 			/>
+			<SituacaoMatricula matriculas={listaMatriculas} />
 		</>
 	);
 }

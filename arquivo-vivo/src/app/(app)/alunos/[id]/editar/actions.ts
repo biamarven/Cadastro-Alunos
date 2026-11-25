@@ -90,3 +90,96 @@ export async function atualizarAluno(id: string, dados: DadosEdicao): Promise<{ 
 	revalidatePath(`/alunos/${id}`);
 	return {};
 }
+
+const SITUACOES_VALIDAS = ["ativa", "trancada", "inativa"];
+
+const MOTIVOS_POR_SITUACAO: Record<string, string[]> = {
+	ativa: ["reabertura", "outro"],
+	trancada: ["trancamento", "outro"],
+	inativa: ["desistencia", "transferencia", "conclusao", "outro"],
+};
+
+export async function alterarSituacaoMatricula(
+	matriculaId: string,
+	nova: string,
+	motivo: string,
+	dataEfeito: string,
+	observacao: string,
+): Promise<{ erro?: string }> {
+	let sessao;
+	try {
+		sessao = await exigirEdicao("Cadastro de alunos");
+	} catch {
+		return { erro: "Você não tem permissão para alterar a situação." };
+	}
+
+	if (!/^\d+$/.test(matriculaId)) return { erro: "Matrícula inválida." };
+	if (!SITUACOES_VALIDAS.includes(nova)) return { erro: "Situação inválida." };
+	if (!(MOTIVOS_POR_SITUACAO[nova] ?? []).includes(motivo)) {
+		return { erro: "Motivo incompatível com a nova situação." };
+	}
+	if (!/^\d{4}-\d{2}-\d{2}$/.test(dataEfeito) || Number.isNaN(Date.parse(dataEfeito))) {
+		return { erro: "Informe uma data de efeito válida." };
+	}
+	const obs = observacao.trim();
+	if (motivo === "outro" && obs === "") return { erro: "Descreva o motivo na observação." };
+
+	const atuais = await sql`
+		select situacao, aluno_id::text as aluno_id
+		from matricula
+		where 1=1
+		and id = ${matriculaId}::bigint
+	`;
+	if (atuais.length === 0) return { erro: "Matrícula não encontrada." };
+	const atual = String(atuais[0].situacao);
+	const alunoId = String(atuais[0].aluno_id);
+	if (atual === nova) return { erro: "A matrícula já está nessa situação." };
+
+	let registro;
+	try {
+		registro = await sql`
+			with atualizada as (
+				update matricula
+				set situacao = ${nova}::text, atualizado_em = now()
+				where 1=1
+				and id = ${matriculaId}::bigint
+				and situacao = ${atual}::text
+				returning id
+			)
+			insert into matricula_situacao_historico (matricula_id, situacao_anterior, situacao_nova, motivo, data_efeito, observacao, alterado_por)
+			select
+				atualizada.id,
+				${atual}::text,
+				${nova}::text,
+				${motivo}::text,
+				${dataEfeito}::date,
+				${obs === "" ? null : obs}::text,
+				${String(sessao.usuarioId)}::bigint
+			from atualizada
+			returning id
+		`;
+	} catch (e) {
+		const texto = e instanceof Error ? e.message : "";
+		if (texto.includes("matricula_aluno_curso_ativa_uq")) {
+			return { erro: "O aluno já tem outra matrícula ativa ou trancada neste curso." };
+		}
+		return { erro: "Não foi possível alterar a situação." };
+	}
+	if (registro.length === 0) {
+		return { erro: "A situação mudou enquanto você editava. Recarregue a página." };
+	}
+
+	await registrarAuditoria(
+		sessao.usuarioId,
+		"alterar_situacao",
+		"matricula",
+		matriculaId,
+		{ situacao: nova, motivo },
+		{ situacao: atual },
+	);
+
+	revalidatePath("/alunos");
+	revalidatePath(`/alunos/${alunoId}`);
+	revalidatePath("/cursos");
+	return {};
+}
