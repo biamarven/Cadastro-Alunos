@@ -1,18 +1,40 @@
-name: GitHub Actions
+name: CI
 
 on:
   push:
-    branches:
-      - testes
+    branches: [main, testes]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 jobs:
-  executar:
+  verificar:
+    name: Verificar código
     runs-on: ubuntu-latest
-
+    env:
+      DATABASE_URL: postgresql://usuario:senha@localhost:5432/ci
+      SESSION_SECRET: segredo-apenas-para-o-ci
     steps:
       - name: Baixar o código
         uses: actions/checkout@v4
 
-      - name: Verificar execução
-        run: echo "GitHub Actions funcionando!"
+      - name: Instalar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint --if-present
+
+      - name: Checar tipos
+        run: npx tsc --noEmit
+
+      - name: Testes
+        run: npm test --if-present
+
+      - name: Build
+        run: npm run build
