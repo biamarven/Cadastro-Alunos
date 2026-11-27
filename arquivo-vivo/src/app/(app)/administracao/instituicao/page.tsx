@@ -1,60 +1,83 @@
-"use client";
+import { notFound } from "next/navigation";
+import { sql } from "@/lib/db";
+import { permissaoAtual } from "@/lib/autorizacao";
+import InstituicaoCliente from "./InstituicaoCliente";
 
-import Link from "next/link";
-import { useState } from "react";
-import { Campo, Cartao, Chip, Titulo, classeBotao } from "@/components/ui";
+export const dynamic = "force-dynamic";
 
-export default function InstituicaoPage() {
-	const [inst, setInst] = useState({ nome: "Instituto Arquivo Vivo", cnpj: "", cidade: "Palhoça/SC", email: "" });
-	const [regra, setRegra] = useState({ n1: "30", n2: "30", n3: "40", aprovacao: "7,0", recuperacao: "5,0" });
-	const [salvo, setSalvo] = useState(false);
+export default async function InstituicaoPage() {
+	const acesso = await permissaoAtual("Administração");
+	if (acesso.nivel !== "ver" && acesso.nivel !== "editar") notFound();
 
-	const soma = Number(regra.n1) + Number(regra.n2) + Number(regra.n3);
+	const instituicoes = await sql`
+		select razao_social, nome_fantasia, sigla, cnpj, credenciamento, cep, logradouro, numero, complemento, bairro, cidade, uf, email, telefone, site
+		from instituicao
+		where 1=1
+		and id = 1
+	`;
+
+	const configuracoes = await sql`
+		select nota_aprovacao::float8 as aprovacao, nota_recuperacao::float8 as recuperacao, descarte_rascunho_dias as descarte
+		from configuracao
+		where 1=1
+		and id = 1
+	`;
+
+	const pesos = await sql`
+		select ordem, nome, peso::float8 as peso
+		from configuracao_peso
+		order by ordem
+	`;
+
+	const periodos = await sql`
+		select
+			codigo,
+			to_char(data_inicio, 'DD/MM/YYYY') as inicio,
+			to_char(data_fim, 'DD/MM/YYYY') as fim,
+			case
+				when atual then 'Atual'
+				when data_fim < current_date then 'Encerrado'
+				else 'Futuro'
+			end as status
+		from periodo_letivo
+		order by codigo desc
+	`;
+
+	const i = instituicoes[0];
+	const texto = (v: unknown) => (v === null || v === undefined ? "" : String(v));
 
 	return (
-		<>
-			<Titulo titulo="Instituição e regras" sub="Dados da instituição, regra de notas e períodos">
-				<Link href="/administracao" className={classeBotao("claro")}>Voltar</Link>
-				<button className={classeBotao("primario")} disabled={soma !== 100} onClick={() => setSalvo(true)}>Salvar</button>
-			</Titulo>
-
-			<div className="space-y-6">
-				<Cartao titulo="Dados da instituição">
-					<div className="grid gap-4 md:grid-cols-2">
-						<Campo label="Nome" value={inst.nome} onChange={(v) => setInst({ ...inst, nome: v })} />
-						<Campo label="CNPJ" value={inst.cnpj} onChange={(v) => setInst({ ...inst, cnpj: v })} />
-						<Campo label="Cidade" value={inst.cidade} onChange={(v) => setInst({ ...inst, cidade: v })} />
-						<Campo label="E-mail de contato" value={inst.email} onChange={(v) => setInst({ ...inst, email: v })} />
-					</div>
-				</Cartao>
-
-				<Cartao titulo="Regra de notas">
-					<div className="grid gap-4 md:grid-cols-5">
-						<Campo label="Peso N1 (%)" value={regra.n1} onChange={(v) => setRegra({ ...regra, n1: v })} />
-						<Campo label="Peso N2 (%)" value={regra.n2} onChange={(v) => setRegra({ ...regra, n2: v })} />
-						<Campo label="Peso N3 (%)" value={regra.n3} onChange={(v) => setRegra({ ...regra, n3: v })} />
-						<Campo label="Média p/ aprovar" value={regra.aprovacao} onChange={(v) => setRegra({ ...regra, aprovacao: v })} />
-						<Campo label="Média p/ recuperação" value={regra.recuperacao} onChange={(v) => setRegra({ ...regra, recuperacao: v })} />
-					</div>
-					{soma !== 100 && <p className="mt-2 text-sm text-vermelho">Os pesos precisam somar 100 (agora: {soma}).</p>}
-				</Cartao>
-
-				<Cartao titulo="Períodos letivos">
-					<table className="w-full text-sm">
-						<thead>
-							<tr className="text-left text-xs uppercase text-suave">
-								<th className="pb-2">Período</th><th className="pb-2">Início</th><th className="pb-2">Fim</th><th className="pb-2">Status</th>
-							</tr>
-						</thead>
-						<tbody>
-							<tr className="border-t border-linha"><td className="py-2 font-mono">2026.2</td><td>03/08/2026</td><td>18/12/2026</td><td><Chip tom="ok">Atual</Chip></td></tr>
-							<tr className="border-t border-linha"><td className="py-2 font-mono">2026.1</td><td>09/02/2026</td><td>10/07/2026</td><td><Chip>Encerrado</Chip></td></tr>
-						</tbody>
-					</table>
-				</Cartao>
-
-				{salvo && <p className="text-sm text-suave">Configurações salvas (simulação).</p>}
-			</div>
-		</>
+		<InstituicaoCliente
+			podeEditar={acesso.nivel === "editar"}
+			instituicao={{
+				razaoSocial: texto(i?.razao_social),
+				nomeFantasia: texto(i?.nome_fantasia),
+				sigla: texto(i?.sigla),
+				cnpj: texto(i?.cnpj),
+				credenciamento: texto(i?.credenciamento),
+				cep: texto(i?.cep),
+				logradouro: texto(i?.logradouro),
+				numero: texto(i?.numero),
+				complemento: texto(i?.complemento),
+				bairro: texto(i?.bairro),
+				cidade: texto(i?.cidade),
+				uf: texto(i?.uf),
+				email: texto(i?.email),
+				telefone: texto(i?.telefone),
+				site: texto(i?.site),
+			}}
+			regras={{
+				aprovacao: configuracoes.length > 0 ? Number(configuracoes[0].aprovacao) : 7,
+				recuperacao: configuracoes.length > 0 ? Number(configuracoes[0].recuperacao) : 5,
+				descarte: configuracoes.length > 0 ? Number(configuracoes[0].descarte) : 30,
+			}}
+			pesos={pesos.map((p) => ({ ordem: Number(p.ordem), nome: String(p.nome), peso: Number(p.peso) }))}
+			periodos={periodos.map((p) => ({
+				codigo: String(p.codigo),
+				inicio: String(p.inicio),
+				fim: String(p.fim),
+				status: String(p.status),
+			}))}
+		/>
 	);
 }

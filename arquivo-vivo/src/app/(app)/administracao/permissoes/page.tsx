@@ -1,71 +1,46 @@
-"use client";
+import { notFound } from "next/navigation";
+import { sql } from "@/lib/db";
+import { permissaoAtual } from "@/lib/autorizacao";
+import PermissoesCliente from "./PermissoesCliente";
 
-import Link from "next/link";
-import { useState } from "react";
-import { Campo, Cartao, Titulo, classeBotao } from "@/components/ui";
-import { matrizInicial, modulos, perfis } from "@/lib/mock";
-import type { Permissao } from "@/lib/mock";
+export const dynamic = "force-dynamic";
 
-const selecao = "rounded-md border border-linha bg-white px-2 py-1 text-sm outline-none focus:border-vermelho";
+export default async function PermissoesPage() {
+	const acesso = await permissaoAtual("Administração");
+	if (acesso.nivel !== "ver" && acesso.nivel !== "editar") notFound();
 
-export default function PermissoesPage() {
-	const [perfil, setPerfil] = useState(perfis[0]);
-	const [matriz, setMatriz] = useState(matrizInicial);
-	const [salvo, setSalvo] = useState(false);
+	const perfis = await sql`
+		select id::text as id, nome
+		from perfil
+		order by id
+	`;
 
-	function mudar(modulo: string, campo: keyof Permissao, valor: string | boolean) {
-		setSalvo(false);
-		const novo = { ...matriz[perfil][modulo], [campo]: valor } as Permissao;
-		setMatriz({ ...matriz, [perfil]: { ...matriz[perfil], [modulo]: novo } });
+	const modulos = await sql`
+		select id::text as id, nome
+		from modulo
+		order by id
+	`;
+
+	const linhas = await sql`
+		select perfil_id::text as perfil_id, modulo_id::text as modulo_id, nivel, escopo, exige_justificativa
+		from perfil_permissao
+	`;
+
+	const permissoes: Record<string, { nivel: string; escopo: string; justificativa: boolean }> = {};
+	for (const l of linhas) {
+		permissoes[`${l.perfil_id}:${l.modulo_id}`] = {
+			nivel: String(l.nivel),
+			escopo: String(l.escopo),
+			justificativa: Boolean(l.exige_justificativa),
+		};
 	}
 
 	return (
-		<>
-			<Titulo titulo="Permissões" sub="O que cada perfil pode fazer em cada módulo">
-				<Link href="/administracao" className={classeBotao("claro")}>Voltar</Link>
-				<button className={classeBotao("primario")} onClick={() => setSalvo(true)}>Salvar permissões</button>
-			</Titulo>
-
-			<Cartao className="mb-4">
-				<div className="max-w-xs">
-					<Campo label="Perfil" value={perfil} onChange={setPerfil} opcoes={perfis} />
-				</div>
-			</Cartao>
-
-			<Cartao>
-				<table className="w-full text-sm">
-					<thead>
-						<tr className="text-left text-xs uppercase text-suave">
-							<th className="pb-2">Módulo</th><th className="pb-2">Nível</th><th className="pb-2">Escopo</th>
-							<th className="pb-2">Exige justificativa</th>
-						</tr>
-					</thead>
-					<tbody>
-						{modulos.map((m) => {
-							const p = matriz[perfil][m.id];
-							return (
-								<tr key={m.id} className="border-t border-linha">
-									<td className="py-2 font-medium">{m.nome}</td>
-									<td className="py-2">
-										<select className={selecao} value={p.nivel} onChange={(e) => mudar(m.id, "nivel", e.target.value)}>
-											<option>Sem acesso</option><option>Ver</option><option>Editar</option>
-										</select>
-									</td>
-									<td className="py-2">
-										<select className={selecao} value={p.escopo} onChange={(e) => mudar(m.id, "escopo", e.target.value)}>
-											<option>Todos</option><option>Curso</option><option>Turmas</option>
-										</select>
-									</td>
-									<td className="py-2">
-										<input type="checkbox" checked={p.justificativa} onChange={(e) => mudar(m.id, "justificativa", e.target.checked)} />
-									</td>
-								</tr>
-							);
-						})}
-					</tbody>
-				</table>
-				{salvo && <p className="mt-3 text-sm text-suave">Permissões salvas (simulação).</p>}
-			</Cartao>
-		</>
+		<PermissoesCliente
+			podeEditar={acesso.nivel === "editar"}
+			perfis={perfis.map((p) => ({ id: String(p.id), nome: String(p.nome) }))}
+			modulos={modulos.map((m) => ({ id: String(m.id), nome: String(m.nome) }))}
+			permissoes={permissoes}
+		/>
 	);
 }
