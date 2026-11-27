@@ -1,124 +1,166 @@
-"use client";
+import { notFound } from "next/navigation";
+import { sql } from "@/lib/db";
+import { permissaoAtual } from "@/lib/autorizacao";
+import NotasCliente, { type Selecionada } from "./NotasCliente";
 
-import { useState } from "react";
-import { Campo, Cartao, Chip, Titulo, classeBotao, tomSituacao } from "@/components/ui";
-import { cursos, notasTurma, turmas } from "@/lib/mock";
-import { calcular } from "@/lib/notas";
+export const dynamic = "force-dynamic";
 
-type Campos = "n1" | "n2" | "n3";
-const campos: Campos[] = ["n1", "n2", "n3"];
+export default async function NotasPage({ searchParams }: { searchParams: Promise<{ oferta?: string }> }) {
+	const { oferta } = await searchParams;
 
-export default function NotasPage() {
-	const [periodo, setPeriodo] = useState("2026.2");
-	const [curso, setCurso] = useState("Técnico em Informática");
-	const [turma, setTurma] = useState("INF-1A");
-	const [disciplina, setDisciplina] = useState("Lógica de Programação");
-	const [busca, setBusca] = useState("");
-	const [soPendentes, setSoPendentes] = useState(false);
-	const [linhas, setLinhas] = useState(notasTurma);
-	const [justificativa, setJustificativa] = useState("");
-	const [mensagem, setMensagem] = useState("");
+	const acesso = await permissaoAtual("Notas");
+	if (!acesso.sessao || (acesso.nivel !== "ver" && acesso.nivel !== "editar")) notFound();
+	const usuarioId = String(acesso.sessao.usuarioId);
+	const escopo = String(acesso.escopo);
+	const podeEditar = acesso.nivel === "editar";
 
-	function alterar(id: string, campo: Campos, valor: string) {
-		setMensagem("");
-		setLinhas(linhas.map((l) => (l.id === id ? { ...l, [campo]: valor } : l)));
-	}
+	const ofertas = await sql`
+		select
+			oferta_disciplina.id::text as id,
+			periodo_letivo.codigo as periodo,
+			curso.nome as curso,
+			turma.codigo as turma,
+			disciplina.nome as disciplina
+		from oferta_disciplina
+		join turma on (
+			turma.id = oferta_disciplina.turma_id
+		)
+		join periodo_letivo on (
+			periodo_letivo.id = turma.periodo_letivo_id
+		)
+		join curso on (
+			curso.id = turma.curso_id
+		)
+		join curso_disciplina on (
+			curso_disciplina.id = oferta_disciplina.curso_disciplina_id
+		)
+		join disciplina on (
+			disciplina.id = curso_disciplina.disciplina_id
+		)
+		where 1=1
+		and (
+			${escopo}::text = 'todos' or
+			(${escopo}::text = 'turmas' and oferta_disciplina.professor_id = ${usuarioId}::bigint) or
+			(${escopo}::text = 'curso' and curso.coordenador_id = ${usuarioId}::bigint)
+		)
+		order by periodo_letivo.codigo desc, curso.nome, turma.codigo, disciplina.nome
+	`;
 
-	// Nota que já existia e foi mudada exige justificativa (correção).
-	const corrigidas = linhas.filter((l) => {
-		const o = notasTurma.find((x) => x.id === l.id)!;
-		return campos.some((c) => o[c] !== "" && l[c] !== o[c]);
-	});
+	const config = await sql`
+		select nota_aprovacao::float8 as aprovacao, nota_recuperacao::float8 as recuperacao
+		from configuracao
+		limit 1
+	`;
+	const aprovacao = config.length > 0 ? Number(config[0].aprovacao) : 7;
+	const recuperacao = config.length > 0 ? Number(config[0].recuperacao) : 5;
 
-	const visiveis = linhas.filter((l) => {
-		const pendente = calcular(l.n1, l.n2, l.n3).situacao === "Em andamento";
-		return (l.nome + l.matricula).toLowerCase().includes(busca.toLowerCase()) && (!soPendentes || pendente);
-	});
+	let selecionada: Selecionada | null = null;
+	if (oferta && /^\d+$/.test(oferta) && ofertas.some((o) => String(o.id) === oferta)) {
+		await sql`
+			insert into matricula_disciplina (matricula_id, oferta_disciplina_id)
+			select matricula_turma.matricula_id, ${oferta}::bigint
+			from matricula_turma
+			join matricula on (
+				matricula.id = matricula_turma.matricula_id and
+				matricula.situacao <> 'inativa'
+			)
+			where 1=1
+			and matricula_turma.turma_id = (
+				select oferta_disciplina.turma_id
+				from oferta_disciplina
+				where 1=1
+				and oferta_disciplina.id = ${oferta}::bigint
+			)
+			on conflict (matricula_id, oferta_disciplina_id) do nothing
+		`;
 
-	function salvar() {
-		if (corrigidas.length > 0 && justificativa.trim().length < 10) {
-			setMensagem("Há notas corrigidas: escreva a justificativa (mínimo 10 caracteres).");
-			return;
+		const dadosOferta = await sql`
+			select encerrada
+			from oferta_disciplina
+			where 1=1
+			and id = ${oferta}::bigint
+		`;
+
+		const avaliacoes = await sql`
+			select id::text as id, nome, peso::float8 as peso
+			from avaliacao
+			where 1=1
+			and oferta_disciplina_id = ${oferta}::bigint
+			order by ordem
+		`;
+
+		const alunos = await sql`
+			select
+				matricula_disciplina.id::text as id,
+				aluno.nome_completo,
+				matricula.numero,
+				matricula.situacao as situacao_matricula,
+				matricula_disciplina.media::float8 as media,
+				matricula_disciplina.situacao
+			from matricula_disciplina
+			join matricula on (
+				matricula.id = matricula_disciplina.matricula_id
+			)
+			join aluno on (
+				aluno.id = matricula.aluno_id
+			)
+			where 1=1
+			and matricula_disciplina.oferta_disciplina_id = ${oferta}::bigint
+			order by aluno.nome_completo
+		`;
+
+		const notas = await sql`
+			select
+				nota.matricula_disciplina_id::text as md_id,
+				nota.avaliacao_id::text as av_id,
+				nota.valor::float8 as valor
+			from nota
+			join matricula_disciplina on (
+				matricula_disciplina.id = nota.matricula_disciplina_id
+			)
+			where 1=1
+			and matricula_disciplina.oferta_disciplina_id = ${oferta}::bigint
+		`;
+
+		const notasPorAluno = new Map<string, Record<string, number | null>>();
+		for (const n of notas) {
+			const atual = notasPorAluno.get(String(n.md_id)) ?? {};
+			atual[String(n.av_id)] = Number(n.valor);
+			notasPorAluno.set(String(n.md_id), atual);
 		}
-		setMensagem("Notas salvas (simulação). O professor responsável será notificado das correções.");
+
+		const linhas = alunos.map((a) => ({
+			mdId: String(a.id),
+			nome: String(a.nome_completo),
+			matricula: String(a.numero),
+			situacaoMatricula: String(a.situacao_matricula),
+			notas: notasPorAluno.get(String(a.id)) ?? {},
+			media: a.media === null ? null : Number(a.media),
+			situacao: String(a.situacao),
+		}));
+
+		selecionada = {
+			id: oferta,
+			encerrada: Boolean(dadosOferta[0]?.encerrada),
+			avaliacoes: avaliacoes.map((a) => ({ id: String(a.id), nome: String(a.nome), peso: Number(a.peso) })),
+			linhas,
+			chave: linhas.map((l) => `${l.mdId}=${JSON.stringify(l.notas)}/${l.media}`).join(";"),
+		};
 	}
 
 	return (
-		<>
-			<Titulo titulo="Lançamento de notas" sub="Escolha a turma e a disciplina. Média = N1 30% + N2 30% + N3 40%." />
-
-			<Cartao className="mb-4">
-				<div className="grid gap-3 md:grid-cols-4">
-					<Campo label="Período" value={periodo} onChange={setPeriodo} opcoes={["2026.1", "2026.2"]} />
-					<Campo label="Curso" value={curso} onChange={setCurso} opcoes={cursos.map((c) => c.nome)} />
-					<Campo label="Turma" value={turma} onChange={setTurma} opcoes={turmas.map((t) => t.codigo)} />
-					<Campo label="Disciplina" value={disciplina} onChange={setDisciplina}
-						opcoes={["Lógica de Programação", "Matemática Aplicada", "Inglês Instrumental"]} />
-				</div>
-				<div className="mt-3 grid items-end gap-3 md:grid-cols-[1fr_auto]">
-					<Campo label="Buscar aluno" value={busca} onChange={setBusca} placeholder="Nome ou matrícula" />
-					<label className="flex items-center gap-2 pb-2 text-sm">
-						<input type="checkbox" checked={soPendentes} onChange={(e) => setSoPendentes(e.target.checked)} />
-						Mostrar só pendentes
-					</label>
-				</div>
-			</Cartao>
-
-			<Cartao>
-				<table className="w-full text-sm">
-					<thead>
-						<tr className="text-left text-xs uppercase text-suave">
-							<th className="pb-2">Aluno</th><th className="pb-2">Matrícula</th>
-							<th className="pb-2">N1 (30%)</th><th className="pb-2">N2 (30%)</th><th className="pb-2">N3 (40%)</th>
-							<th className="pb-2">Média</th><th className="pb-2">Situação</th>
-						</tr>
-					</thead>
-					<tbody>
-						{visiveis.map((l) => {
-							const r = calcular(l.n1, l.n2, l.n3);
-							return (
-								<tr key={l.id} className="border-t border-linha">
-									<td className="py-2 font-medium">{l.nome}</td>
-									<td className="py-2 font-mono text-xs">{l.matricula}</td>
-									{campos.map((c) => (
-										<td key={c} className="py-2">
-											<input
-												inputMode="decimal"
-												value={l[c]}
-												onChange={(e) => alterar(l.id, c, e.target.value)}
-												className="w-16 rounded-md border border-linha bg-white px-2 py-1 text-center font-mono text-sm outline-none focus:border-vermelho"
-											/>
-										</td>
-									))}
-									<td className="py-2 font-mono">{r.media === null ? "—" : r.media.toFixed(1).replace(".", ",")}</td>
-									<td className="py-2"><Chip tom={tomSituacao(r.situacao)}>{r.situacao}</Chip></td>
-								</tr>
-							);
-						})}
-					</tbody>
-				</table>
-
-				{corrigidas.length > 0 && (
-					<div className="mt-4 rounded-md border border-amber-300 bg-amber-50 p-3">
-						<p className="mb-2 text-sm font-semibold text-amber-900">
-							{corrigidas.length} aluno(s) com nota corrigida. Justifique:
-						</p>
-						<textarea
-							value={justificativa}
-							onChange={(e) => setJustificativa(e.target.value)}
-							rows={3}
-							className="w-full rounded-md border border-linha bg-white p-2 text-sm outline-none focus:border-vermelho"
-							placeholder="Ex.: erro de digitação na primeira entrada."
-						/>
-					</div>
-				)}
-
-				{mensagem && <p className="mt-3 text-sm text-suave">{mensagem}</p>}
-
-				<div className="mt-4 flex justify-end">
-					<button className={classeBotao("primario")} onClick={salvar}>Salvar notas</button>
-				</div>
-			</Cartao>
-		</>
+		<NotasCliente
+			ofertas={ofertas.map((o) => ({
+				id: String(o.id),
+				periodo: String(o.periodo),
+				curso: String(o.curso),
+				turma: String(o.turma),
+				disciplina: String(o.disciplina),
+			}))}
+			selecionada={selecionada}
+			podeEditar={podeEditar}
+			aprovacao={aprovacao}
+			recuperacao={recuperacao}
+		/>
 	);
 }

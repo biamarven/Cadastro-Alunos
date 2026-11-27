@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import type { FormEvent } from "react";
 import Modal from "@/components/Modal";
 import { Campo, Cartao, Chip, Titulo, classeBotao } from "@/components/ui";
@@ -217,6 +218,9 @@ export default function CursosCliente({
 								{c.carga} h · {c.duracao} semestres · {c.turnos.map((t) => turnos[t]).join(", ") || "sem turno"}
 							</p>
 							<p className="mt-3 text-sm">{c.alunos} alunos · {c.turmas} turmas</p>
+							<Link href={`/cursos/${c.id}`} className="mt-3 inline-block text-sm text-vermelho hover:underline">
+								Disciplinas e ofertas
+							</Link>
 						</Cartao>
 					))}
 				</div>
