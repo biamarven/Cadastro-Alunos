@@ -14,6 +14,9 @@ jobs:
     env:
       DATABASE_URL: postgresql://usuario:senha@localhost:5432/ci
       SESSION_SECRET: segredo-apenas-para-o-ci
+    defaults:
+      run:
+        working-directory: arquivo-vivo
     steps:
       - name: Baixar o código
         uses: actions/checkout@v4
@@ -23,6 +26,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: arquivo-vivo/package-lock.json
 
       - name: Instalar dependências
         run: npm ci
