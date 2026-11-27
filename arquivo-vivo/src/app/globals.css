@@ -19,8 +19,29 @@ body {
 	color: var(--color-tinta);
 }
 
+.debug-origem {
+	display: none;
+	margin-left: 0.5rem;
+	padding: 0.05rem 0.4rem;
+	border-radius: 0.25rem;
+	background: #fde68a;
+	color: #78350f;
+	font-family: var(--font-jbmono), monospace;
+	font-size: 10px;
+	font-weight: 600;
+	letter-spacing: 0;
+	text-transform: none;
+}
+
+html[data-debug="on"] .debug-origem {
+	display: inline-block;
+}
+
 @media print {
 	.no-print {
+		display: none !important;
+	}
+	.debug-origem {
 		display: none !important;
 	}
 	body {

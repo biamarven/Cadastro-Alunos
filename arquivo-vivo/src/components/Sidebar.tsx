@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { sair } from "@/app/login/actions";
 import { podeAcessar } from "@/lib/permissoes";
 import type { Permissoes } from "@/lib/permissoes";
+import BotaoDebug from "@/components/BotaoDebug";
 
 const itens = [
 	{ href: "/inicio", nome: "Início", modulo: null },
@@ -63,6 +64,11 @@ export default function Sidebar({
 						</button>
 					</form>
 				</div>
+				{perfil === "Administrador" && (
+					<div className="mt-2">
+						<BotaoDebug />
+					</div>
+				)}
 			</div>
 		</aside>
 	);

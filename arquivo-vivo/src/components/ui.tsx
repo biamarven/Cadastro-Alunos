@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import OrigemDebug from "@/components/OrigemDebug";
 
 export const classeBotao = (v: "primario" | "claro" | "perigo" = "primario") =>
 	"inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 " +
@@ -60,14 +61,18 @@ type CampoProps = {
 	readOnly?: boolean;
 	className?: string;
 	dica?: string;
+	origem?: string | false;
 };
 
-export function Campo({ label, value, onChange, type = "text", opcoes, placeholder, readOnly, className = "", dica }: CampoProps) {
+export function Campo({ label, value, onChange, type = "text", opcoes, placeholder, readOnly, className = "", dica, origem }: CampoProps) {
 	const base =
 		"w-full rounded-md border border-linha bg-white px-3 py-2 text-sm outline-none focus:border-vermelho read-only:bg-stone-100";
 	return (
 		<label className={`block ${className}`}>
-			<span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-suave">{label}</span>
+			<span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-suave">
+				{label}
+				<OrigemDebug label={label} origem={origem} />
+			</span>
 			{opcoes ? (
 				<select className={base} value={value} disabled={readOnly} onChange={(e) => onChange?.(e.target.value)}>
 					<option value="">Selecione…</option>
