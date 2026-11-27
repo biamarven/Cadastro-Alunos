@@ -7,6 +7,7 @@ import Modal from "@/components/Modal";
 import { Campo, Cartao, Chip, Titulo, classeBotao } from "@/components/ui";
 import { codigoDe, modalidades, niveis, rotulosDe, situacoesCurso, turnos } from "@/lib/rotulos";
 import { criarCurso, criarPeriodo, criarTurma } from "./actions";
+import CoordenadorCurso, { type UsuarioOpcao } from "./CoordenadorCurso";
 
 export type CursoLinha = {
 	id: string;
@@ -21,6 +22,7 @@ export type CursoLinha = {
 	turnos: string[];
 	alunos: number;
 	turmas: number;
+	coordenadorId: string | null;
 };
 
 export type PeriodoLinha = { id: string; codigo: string; atual: boolean };
@@ -60,11 +62,13 @@ const turmaVazia = {
 
 export default function CursosCliente({
 	podeEditar,
+	usuarios,
 	cursos,
 	periodos,
 	turmas,
 }: {
 	podeEditar: boolean;
+	usuarios: UsuarioOpcao[];
 	cursos: CursoLinha[];
 	periodos: PeriodoLinha[];
 	turmas: TurmaLinha[];
@@ -218,6 +222,12 @@ export default function CursosCliente({
 								{c.carga} h · {c.duracao} semestres · {c.turnos.map((t) => turnos[t]).join(", ") || "sem turno"}
 							</p>
 							<p className="mt-3 text-sm">{c.alunos} alunos · {c.turmas} turmas</p>
+							<CoordenadorCurso
+								cursoId={c.id}
+								coordenadorId={c.coordenadorId}
+								usuarios={usuarios}
+								podeEditar={podeEditar}
+							/>
 							<Link href={`/cursos/${c.id}`} className="mt-3 inline-block text-sm text-vermelho hover:underline">
 								Disciplinas e ofertas
 							</Link>

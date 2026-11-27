@@ -258,3 +258,63 @@ export async function criarTurma(dados: {
 	revalidatePath("/cursos");
 	return {};
 }
+
+export async function definirCoordenador(cursoId: string, usuarioId: string): Promise<Resultado> {
+	let sessao;
+	try {
+		sessao = await exigirEdicao("Cursos e turmas", true);
+	} catch {
+		return { erro: "Você não tem permissão para definir o coordenador." };
+	}
+
+	if (!/^\d+$/.test(cursoId)) {
+		return { erro: "Curso inválido." };
+	}
+	if (usuarioId !== "" && !/^\d+$/.test(usuarioId)) {
+		return { erro: "Usuário inválido." };
+	}
+
+	const cursos = await sql`
+		select usuario.nome as coordenador
+		from curso
+		left join usuario on (
+			usuario.id = curso.coordenador_id
+		)
+		where 1=1
+		and curso.id = ${cursoId}::bigint
+	`;
+	if (cursos.length === 0) {
+		return { erro: "Curso não encontrado." };
+	}
+	const anterior: string | null = cursos[0].coordenador === null ? null : String(cursos[0].coordenador);
+
+	let novo: string | null = null;
+	if (usuarioId !== "") {
+		const usuarios = await sql`
+			select nome
+			from usuario
+			where 1=1
+			and id = ${usuarioId}::bigint
+		`;
+		if (usuarios.length === 0) {
+			return { erro: "Usuário não encontrado." };
+		}
+		novo = String(usuarios[0].nome);
+	}
+
+	if (anterior === novo) {
+		return {};
+	}
+
+	await sql`
+		update curso
+		set coordenador_id = ${usuarioId === "" ? null : usuarioId}::bigint
+		where 1=1
+		and id = ${cursoId}::bigint
+	`;
+
+	await registrarAuditoria(sessao.usuarioId, "editar", "curso", cursoId, { coordenador: novo }, { coordenador: anterior });
+
+	revalidatePath("/cursos");
+	return {};
+}

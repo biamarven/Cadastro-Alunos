@@ -19,6 +19,7 @@ export default async function CursosPage() {
 			curso.duracao_semestres,
 			curso.vagas_por_turma,
 			curso.situacao,
+			curso.coordenador_id::text as coordenador_id,
 			coalesce((
 				select string_agg(curso_turno.turno, ',' order by curso_turno.turno)
 				from curso_turno
@@ -41,6 +42,13 @@ export default async function CursosPage() {
 		from curso
 		where 1=1
 		order by curso.nome
+	`;
+
+	const usuarios = await sql`
+		select id::text as id, nome
+		from usuario
+		where 1=1
+		order by nome
 	`;
 
 	const periodos = await sql`
@@ -88,6 +96,7 @@ export default async function CursosPage() {
 	return (
 		<CursosCliente
 			podeEditar={podeEditar}
+			usuarios={usuarios.map((u) => ({ id: String(u.id), nome: String(u.nome) }))}
 			cursos={cursos.map((c) => ({
 				id: String(c.id),
 				codigo: c.codigo,
@@ -101,6 +110,7 @@ export default async function CursosPage() {
 				turnos: c.turnos ? String(c.turnos).split(",") : [],
 				alunos: Number(c.alunos),
 				turmas: Number(c.turmas),
+				coordenadorId: c.coordenador_id === null ? null : String(c.coordenador_id),
 			}))}
 			periodos={periodos.map((p) => ({
 				id: String(p.id),
