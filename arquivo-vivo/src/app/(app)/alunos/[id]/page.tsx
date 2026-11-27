@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { sql } from "@/lib/db";
 import { permissaoAtual } from "@/lib/autorizacao";
+import { alunoNoEscopo } from "@/lib/escopoAlunos";
 import { Cartao, Chip, Titulo, classeBotao, iniciais, tomSituacao } from "@/components/ui";
 import { formatarCpf, mascararCpf } from "@/lib/formatos";
 import { parentescos, situacoesMatricula, turnos } from "@/lib/rotulos";
@@ -12,6 +13,16 @@ export default async function PerfilPage({ params }: { params: Promise<{ id: str
 	const { id } = await params;
 
 	if (!/^\d+$/.test(id)) {
+		notFound();
+	}
+
+	const acesso = await permissaoAtual("Alunos");
+	if (acesso.nivel !== "ver" && acesso.nivel !== "editar") {
+		notFound();
+	}
+
+	const usuarioId = String(acesso.sessao?.usuarioId ?? "0");
+	if (!(await alunoNoEscopo(id, String(acesso.escopo), usuarioId))) {
 		notFound();
 	}
 

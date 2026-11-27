@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { Titulo } from "@/components/ui";
 import { sql } from "@/lib/db";
 import { permissaoAtual } from "@/lib/autorizacao";
+import { alunoNoEscopo } from "@/lib/escopoAlunos";
 import HistoricoMatricula from "./HistoricoMatricula";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +13,9 @@ export default async function HistoricoPage({ params }: { params: Promise<{ id: 
 
 	const acesso = await permissaoAtual("Histórico acadêmico");
 	if (acesso.nivel !== "ver" && acesso.nivel !== "editar") notFound();
+
+	const usuarioId = String(acesso.sessao?.usuarioId ?? "0");
+	if (!(await alunoNoEscopo(id, String(acesso.escopo), usuarioId))) notFound();
 
 	const alunos = await sql`
 		select nome_completo

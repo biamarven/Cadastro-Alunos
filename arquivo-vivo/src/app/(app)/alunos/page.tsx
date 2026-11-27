@@ -1,3 +1,4 @@
+import { notFound } from "next/navigation";
 import { sql } from "@/lib/db";
 import { permissaoAtual } from "@/lib/autorizacao";
 import { situacoesMatricula } from "@/lib/rotulos";
@@ -6,7 +7,15 @@ import AlunosCliente from "./AlunosCliente";
 export const dynamic = "force-dynamic";
 
 export default async function AlunosPage() {
+	const acesso = await permissaoAtual("Alunos");
+	if (acesso.nivel !== "ver" && acesso.nivel !== "editar") {
+		notFound();
+	}
+
 	const cadastro = await permissaoAtual("Cadastro de alunos");
+
+	const escopo = String(acesso.escopo);
+	const usuarioId = String(acesso.sessao?.usuarioId ?? "0");
 
 	const alunos = await sql`
 		select
@@ -38,20 +47,48 @@ export default async function AlunosPage() {
 			curso.id = matricula.curso_id
 		)
 		where 1=1
+		and (
+			${escopo}::text = 'todos'
+			or
+			(
+				${escopo}::text = 'curso' and
+				curso.coordenador_id = ${usuarioId}::bigint
+			)
+			or
+			(
+				${escopo}::text = 'turmas' and
+				exists (
+					select 1
+					from matricula_disciplina
+					join oferta_disciplina on (
+						oferta_disciplina.id = matricula_disciplina.oferta_disciplina_id
+					)
+					where 1=1
+					and matricula_disciplina.matricula_id = matricula.id
+					and oferta_disciplina.professor_id = ${usuarioId}::bigint
+				)
+			)
+		)
 		order by aluno.nome_completo, matricula.numero
 	`;
 
-	const cursos = await sql`
-		select nome
-		from curso
-		where 1=1
-		order by nome
-	`;
+	let nomesCursos: string[];
+	if (escopo === "todos") {
+		const cursos = await sql`
+			select nome
+			from curso
+			where 1=1
+			order by nome
+		`;
+		nomesCursos = cursos.map((c) => String(c.nome));
+	} else {
+		nomesCursos = Array.from(new Set(alunos.map((a) => a.curso).filter(Boolean).map(String))).sort();
+	}
 
 	return (
 		<AlunosCliente
 			podeCadastrar={cadastro.nivel === "editar"}
-			cursos={cursos.map((c) => c.nome)}
+			cursos={nomesCursos}
 			alunos={alunos.map((a) => ({
 				chave: `${a.aluno_id}-${a.matricula_id ?? "0"}`,
 				alunoId: String(a.aluno_id),
