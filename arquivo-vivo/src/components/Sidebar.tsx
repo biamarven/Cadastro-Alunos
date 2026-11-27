@@ -50,11 +50,19 @@ export default function Sidebar({
 			<div className="border-t border-white/10 p-4 text-sm">
 				<p className="font-semibold text-white">{nome}</p>
 				<p className="text-xs text-stone-400">{perfil}</p>
-				<form action={sair}>
-					<button type="submit" className="mt-3 text-xs text-stone-400 hover:text-white">
-						Sair
-					</button>
-				</form>
+				<div className="mt-3 flex items-center gap-4">
+					<Link
+						href="/conta/senha"
+						className={`text-xs hover:text-white ${caminho.startsWith("/conta/senha") ? "text-white" : "text-stone-400"}`}
+					>
+						Trocar senha
+					</Link>
+					<form action={sair}>
+						<button type="submit" className="text-xs text-stone-400 hover:text-white">
+							Sair
+						</button>
+					</form>
+				</div>
 			</div>
 		</aside>
 	);
